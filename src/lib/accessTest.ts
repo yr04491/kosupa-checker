@@ -15,7 +15,7 @@ export async function testFirestoreConnection() {
         console.log("データの読み込みに成功! 保存されているデータ一覧: ");
         
         querySnapshot.forEach((doc) => {
-            console.log(`- ID: ${doc.id} => Data:`, doc.data);
+            console.log(`- ID: ${doc.id} => Data:`, doc.data());
         });
 
         console.log("すべての接続テストが正常に完了しました");
