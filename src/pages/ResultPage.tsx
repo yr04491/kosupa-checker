@@ -12,6 +12,8 @@ type LoadState =
   | { status: 'ok'; session: Session }
   | { status: 'error'; message: string };
 
+const RESULT_STORAGE_KEY = 'kosupa-checker:result';
+
 function buildMockSession(): Session {
   const result = solveDP({
     stomachCapacity: MOCK_SESSION.input.stomachCapacity,
@@ -23,6 +25,18 @@ function buildMockSession(): Session {
   return { ...MOCK_SESSION, result: { ...result, geminiComment: null } };
 }
 
+// Firebase 未設定時に MenuPage が sessionStorage に保存したセッションを読む
+function loadLocalSession(): Session | null {
+  try {
+    const raw = sessionStorage.getItem(RESULT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Session;
+    return { ...parsed, createdAt: new Date(parsed.createdAt) };
+  } catch {
+    return null;
+  }
+}
+
 export default function ResultPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -31,6 +45,16 @@ export default function ResultPage() {
   useEffect(() => {
     if (sessionId === 'mock') {
       setState({ status: 'ok', session: buildMockSession() });
+      return;
+    }
+
+    if (sessionId === 'local') {
+      const local = loadLocalSession();
+      if (local) {
+        setState({ status: 'ok', session: local });
+      } else {
+        setState({ status: 'error', message: '計算結果が見つかりません' });
+      }
       return;
     }
 
