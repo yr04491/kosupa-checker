@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { solveDP } from '../lib/dp';
 import { MenuCard } from '../components/MenuCard';
@@ -41,6 +41,11 @@ export default function MenuPage() {
   const [buffetPrice, setBuffetPrice] = useState<number>(initial.buffetPrice);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // カスタムメニュー追加フォーム用の状態
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [customForm, setCustomForm] = useState({ name: '', price: '', weight: '', servingTime: '' });
+  const [formError, setFormError] = useState('');
+
   const selectedCount = menuList.filter((m) => m.isSelected).length;
 
   const handleToggleSelect = (menuId: string) => {
@@ -57,6 +62,41 @@ export default function MenuPage() {
     );
   };
 
+  // カスタムメニューを追加して一覧に加える
+  const handleAddCustomMenu = () => {
+    setFormError('');
+    const price = Number(customForm.price);
+    const weight = Number(customForm.weight);
+    const servingTime = Number(customForm.servingTime);
+
+    if (!customForm.name.trim()) {
+      setFormError('メニュー名を入力してください');
+      return;
+    }
+    if (!price || price <= 0 || !weight || weight <= 0 || !servingTime || servingTime <= 0) {
+      setFormError('価格・重量・提供時間は1以上で入力してください');
+      return;
+    }
+
+    const newMenu: UIMenuItem = {
+      menuId: `custom-${Date.now()}`,
+      name: customForm.name.trim(),
+      price,
+      weight,
+      servingTime,
+      isPreset: false,
+      category: 'カスタム',
+      createdBy: null,
+      createdAt: new Date(),
+      isSelected: true,
+      preference: 3,
+    };
+
+    setMenuList((prev) => [...prev, newMenu]);
+    setCustomForm({ name: '', price: '', weight: '', servingTime: '' });
+    setShowAddForm(false);
+  };
+
   // DP を計算し、結果を保存してリザルト画面へ遷移する
   const handleRunDP = async () => {
     if (selectedCount === 0 || isSubmitting) return;
@@ -66,12 +106,13 @@ export default function MenuPage() {
       .filter((m) => m.isSelected)
       .map((m) => ({ menuId: m.menuId, preference: m.preference }));
 
+    // カスタムメニューも参照できるよう menuList をそのまま渡す
     const result = solveDP({
       stomachCapacity,
       stayTime,
       buffetPrice,
       selectedMenus,
-      menus: PRESET_MENUS,
+      menus: menuList,
     });
 
     const session: Session = {
@@ -88,8 +129,10 @@ export default function MenuPage() {
     try {
       // Firestore が設定済みなら永続化して docId で遷移
       const ref = await addDoc(collection(db, 'sessions'), {
-        ...session,
-        sessionId: undefined,
+        userId: null,
+        input: { stomachCapacity, stayTime, buffetPrice, selectedMenus },
+        result: { ...result, geminiComment: null },
+        createdAt: serverTimestamp(),
       });
       navigate(`/result/${ref.id}`);
     } catch {
@@ -186,6 +229,83 @@ export default function MenuPage() {
             ))}
           </div>
         </div>
+
+        {/* カスタムメニュー追加 */}
+        {showAddForm ? (
+          <div className="rounded-sm border-2 border-zinc-200 bg-white p-5 shadow-[4px_4px_0_#18181b]">
+            <h3 className="mb-4 text-sm font-black">カスタムメニューを追加</h3>
+            <div className="space-y-3">
+              <input
+                className="w-full rounded-sm border border-zinc-300 px-3 py-2.5 text-sm font-bold outline-none focus:border-zinc-950 focus:ring-2 focus:ring-red-100"
+                placeholder="メニュー名（例：和牛リブロース）"
+                value={customForm.name}
+                onChange={e => setCustomForm(prev => ({ ...prev, name: e.target.value }))}
+              />
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { field: 'price', placeholder: '価格', unit: '円' },
+                    { field: 'weight', placeholder: '重量', unit: 'g' },
+                    { field: 'servingTime', placeholder: '時間', unit: '分' },
+                  ] as const
+                ).map(({ field, placeholder, unit }) => (
+                  <div
+                    key={field}
+                    className="flex overflow-hidden rounded-sm border border-zinc-300 focus-within:border-zinc-950 focus-within:ring-2 focus-within:ring-red-100"
+                  >
+                    <input
+                      className="w-full px-3 py-2.5 text-sm font-bold outline-none"
+                      placeholder={placeholder}
+                      type="number"
+                      min="1"
+                      inputMode="numeric"
+                      value={customForm[field]}
+                      onChange={e =>
+                        setCustomForm(prev => ({ ...prev, [field]: e.target.value }))
+                      }
+                    />
+                    <span className="grid place-items-center border-l border-zinc-200 bg-zinc-50 px-2 text-xs font-bold text-zinc-500">
+                      {unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {formError && (
+                <p className="rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+                  {formError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-sm bg-zinc-950 py-2.5 text-sm font-bold text-white transition hover:bg-zinc-800"
+                  onClick={handleAddCustomMenu}
+                >
+                  追加する
+                </button>
+                <button
+                  type="button"
+                  className="rounded-sm border border-zinc-300 px-4 py-2.5 text-sm font-bold text-zinc-600 transition hover:bg-zinc-50"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setFormError('');
+                    setCustomForm({ name: '', price: '', weight: '', servingTime: '' });
+                  }}
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="w-full rounded-sm border-2 border-dashed border-zinc-300 py-4 text-sm font-bold text-zinc-500 transition hover:border-zinc-400 hover:bg-white hover:text-zinc-700"
+            onClick={() => setShowAddForm(true)}
+          >
+            + カスタムメニューを追加
+          </button>
+        )}
 
         {/* 送信ボタン */}
         <button
